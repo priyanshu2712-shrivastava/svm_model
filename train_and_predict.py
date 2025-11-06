@@ -1,9 +1,9 @@
 """
-train_and_predict_multi_enhanced.py
+train_soil_condition.py
 
-Enhanced version with improved feature engineering and model selection
+Enhanced soil condition prediction model
 
-Key Improvements:
+Key Features:
 1. Feature engineering (polynomial features, interactions)
 2. Feature selection to reduce noise
 3. Multiple model types (RandomForest, XGBoost, SVM ensemble)
@@ -44,24 +44,16 @@ except ImportError:
     print("Warning: imbalanced-learn not available. Install with: pip install imbalanced-learn")
 
 
-def detect_target_columns(df):
-    """Detect both Soil Condition and Fertilizer Name columns"""
+def detect_soil_column(df):
+    """Detect Soil Condition column"""
     soil_candidates = ['Soil Condition', 'Soil_Condition', 'soil_condition', 'Soil_Quality', 
                       'soil_quality', 'Soil Quality', 'quality', 'Quality', 'condition', 'Condition']
-    fert_candidates = ['Fertilizer Name', 'Fertilizer_Name', 'fertilizer_name', 
-                      'Fertilizer_name', 'fertilizer', 'Fertilizer']
     
     soil_col = None
-    fert_col = None
     
     for c in soil_candidates:
         if c in df.columns:
             soil_col = c
-            break
-    
-    for c in fert_candidates:
-        if c in df.columns:
-            fert_col = c
             break
     
     if not soil_col:
@@ -70,13 +62,7 @@ def detect_target_columns(df):
                 soil_col = col
                 break
     
-    if not fert_col:
-        for col in df.columns:
-            if 'fertil' in col.lower():
-                fert_col = col
-                break
-    
-    return soil_col, fert_col
+    return soil_col
 
 
 def prepare_data(df):
@@ -105,7 +91,7 @@ def analyze_target_distribution(y, target_name):
 def create_feature_interactions(X_num):
     """Create interaction features for numeric columns"""
     if X_num.shape[1] < 2 or X_num.shape[1] > 10:
-        return X_num
+        return X_num, None
     
     print(f"Creating polynomial features (degree=2)...")
     poly = PolynomialFeatures(degree=2, include_bias=False, interaction_only=False)
@@ -180,17 +166,16 @@ def build_ensemble_model(n_classes, use_smote=False, model_type='ensemble'):
         return VotingClassifier(estimators=estimators, voting='soft', n_jobs=-1)
 
 
-def train_model_enhanced(X_train, X_test, y_train, y_test, model_name, 
-                        use_smote=False, feature_selection='mutual_info', 
-                        model_type='ensemble'):
-    """Train enhanced model with feature selection and multiple algorithms"""
+def train_soil_model(X_train, X_test, y_train, y_test, use_smote=False, 
+                     feature_selection='mutual_info', model_type='ensemble'):
+    """Train soil condition model"""
     
     print(f"\n{'='*60}")
-    print(f"Training Enhanced Model: {model_name}")
+    print(f"Training Soil Condition Model")
     print(f"{'='*60}")
     
     # Analyze distribution
-    value_counts = analyze_target_distribution(y_train, model_name)
+    value_counts = analyze_target_distribution(y_train, "Soil Condition")
     
     # Determine number of features to select
     n_features = X_train.shape[1]
@@ -235,7 +220,7 @@ def train_model_enhanced(X_train, X_test, y_train, y_test, model_name,
     acc = accuracy_score(y_test, y_pred)
     f1 = f1_score(y_test, y_pred, average='weighted')
     
-    print(f"\n{model_name} Test Metrics:")
+    print(f"\nSoil Condition Test Metrics:")
     print(f"  Accuracy: {acc:.4f}")
     print(f"  F1-Score (weighted): {f1:.4f}")
     print(f"\nClassification Report:")
@@ -261,7 +246,7 @@ def train_model_enhanced(X_train, X_test, y_train, y_test, model_name,
 
 def main(args):
     print("="*60)
-    print("ENHANCED MULTI-TARGET PREDICTION")
+    print("SOIL CONDITION PREDICTION MODEL")
     print("="*60)
     
     # Load data
@@ -269,17 +254,16 @@ def main(args):
     df = prepare_data(df)
     print(f"\nLoaded data shape: {df.shape}")
     
-    # Detect targets
-    soil_col, fert_col = detect_target_columns(df)
+    # Detect soil condition column
+    soil_col = detect_soil_column(df)
     print(f"\nDetected Soil Condition column: '{soil_col}'")
-    print(f"Detected Fertilizer Name column: '{fert_col}'")
     
-    if not soil_col and not fert_col:
-        raise ValueError("Could not detect target columns.")
+    if not soil_col:
+        raise ValueError("Could not detect soil condition column.")
     
     # Prepare features
-    target_cols = [col for col in [soil_col, fert_col] if col is not None]
-    X = df.drop(columns=target_cols)
+    X = df.drop(columns=[soil_col])
+    y_soil = df[soil_col]
     
     # Handle categorical features
     cat_cols = X.select_dtypes(exclude=[np.number]).columns.tolist()
@@ -311,112 +295,44 @@ def main(args):
     X_processed = pd.concat([X_num, X_cat], axis=1)
     print(f"\nFinal feature shape: {X_processed.shape}")
     
-    # Train models
-    models = {}
-    metrics = {}
+    # Train-test split
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_processed, y_soil, test_size=0.2, random_state=42,
+        stratify=y_soil if len(np.unique(y_soil)) > 1 else None
+    )
     
-    # Soil Condition Model
-    if soil_col:
-        y_soil = df[soil_col]
-        X_train, X_test, y_train, y_test = train_test_split(
-            X_processed, y_soil, test_size=0.2, random_state=42,
-            stratify=y_soil if len(np.unique(y_soil)) > 1 else None
-        )
-        
-        model, acc, f1 = train_model_enhanced(
-            X_train, X_test, y_train, y_test,
-            "Soil Condition",
-            use_smote=args.use_smote,
-            feature_selection=args.feature_selection,
-            model_type=args.model_type
-        )
-        models['soil_condition'] = model
-        metrics['soil_condition'] = {'accuracy': acc, 'f1_score': f1}
-    
-    # Fertilizer Model
-    if fert_col:
-        y_fert = df[fert_col]
-        X_train, X_test, y_train, y_test = train_test_split(
-            X_processed, y_fert, test_size=0.2, random_state=42,
-            stratify=y_fert if len(np.unique(y_fert)) > 1 else None
-        )
-        
-        model, acc, f1 = train_model_enhanced(
-            X_train, X_test, y_train, y_test,
-            "Fertilizer Name",
-            use_smote=args.use_smote,
-            feature_selection=args.feature_selection,
-            model_type=args.model_type
-        )
-        models['fertilizer'] = model
-        metrics['fertilizer'] = {'accuracy': acc, 'f1_score': f1}
+    # Train model
+    model, acc, f1 = train_soil_model(
+        X_train, X_test, y_train, y_test,
+        use_smote=args.use_smote,
+        feature_selection=args.feature_selection,
+        model_type=args.model_type
+    )
     
     # Save artifacts
     artifacts = {
-        'models': models,
+        'model': model,
         'numeric_cols': numeric_cols,
         'cat_cols': cat_cols,
         'onehot_columns': X_cat.columns.tolist(),
         'imputer': imputer,
         'poly_transformer': poly_transformer,
-        'target_columns': {'soil': soil_col, 'fertilizer': fert_col},
-        'metrics': metrics
+        'soil_column': soil_col,
+        'metrics': {'accuracy': acc, 'f1_score': f1}
     }
     
     joblib.dump(artifacts, args.model_out)
     print(f"\n{'='*60}")
-    print(f"✓ Models and artifacts saved to {args.model_out}")
+    print(f"✓ Model and artifacts saved to {args.model_out}")
     print(f"\nFinal Performance Summary:")
-    for target, metric in metrics.items():
-        print(f"  {target.title()}: Accuracy={metric['accuracy']:.4f}, F1={metric['f1_score']:.4f}")
+    print(f"  Soil Condition: Accuracy={acc:.4f}, F1={f1:.4f}")
     print(f"{'='*60}")
-    
-    # Predict on new data
-    if args.predict_csv:
-        print(f"\nMaking predictions on {args.predict_csv}...")
-        new_df = pd.read_csv(args.predict_csv)
-        new_df = prepare_data(new_df)
-        
-        # Process numeric features
-        X_new_num = new_df.reindex(columns=numeric_cols).copy()
-        X_new_num = pd.DataFrame(imputer.transform(X_new_num),
-                                columns=numeric_cols, index=X_new_num.index)
-        
-        # Apply polynomial features if used
-        if poly_transformer is not None:
-            X_new_num = pd.DataFrame(
-                poly_transformer.transform(X_new_num),
-                columns=poly_transformer.get_feature_names_out(numeric_cols),
-                index=X_new_num.index
-            )
-        
-        # Process categorical features
-        if cat_cols:
-            X_new_cat = new_df.reindex(columns=cat_cols).fillna('missing').astype(str)
-            X_new_cat = pd.get_dummies(X_new_cat, drop_first=True)
-            X_new_cat = X_new_cat.reindex(columns=X_cat.columns, fill_value=0)
-        else:
-            X_new_cat = pd.DataFrame(index=new_df.index)
-        
-        X_new_processed = pd.concat([X_new_num, X_new_cat], axis=1)
-        
-        # Make predictions
-        if 'soil_condition' in models:
-            new_df['Predicted_Soil_Condition'] = models['soil_condition'].predict(X_new_processed)
-        
-        if 'fertilizer' in models:
-            new_df['Predicted_Fertilizer_Name'] = models['fertilizer'].predict(X_new_processed)
-        
-        new_df.to_csv(args.pred_out, index=False)
-        print(f"✓ Predictions saved to {args.pred_out}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Enhanced multi-target prediction')
+    parser = argparse.ArgumentParser(description='Soil condition prediction model')
     parser.add_argument('--train_csv', required=True, help='Training CSV path')
-    parser.add_argument('--predict_csv', help='New CSV to predict')
-    parser.add_argument('--model_out', default='enhanced_multi_model.pkl', help='Model output path')
-    parser.add_argument('--pred_out', default='predicted_results.csv', help='Predictions output')
+    parser.add_argument('--model_out', default='soil_model.pkl', help='Model output path')
     parser.add_argument('--use_smote', action='store_true', help='Use SMOTE for imbalanced classes')
     parser.add_argument('--poly_features', action='store_true', help='Create polynomial features')
     parser.add_argument('--feature_selection', default='mutual_info', 
